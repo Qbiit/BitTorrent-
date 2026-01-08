@@ -1,84 +1,53 @@
-BitTorrent Swarm Simulation (P2P Distributed System)
+🚀 BitTorrent- Swarm Simulation
+Este proyecto es una implementación funcional y robusta del protocolo BitTorrent para sistemas distribuidos, desarrollada como proyecto final para la unidad de Sistemas Distribuidos en la UPIITA-IPN.
 
-📌 Descripción del Proyecto
-Este proyecto es una emulación funcional de una red BitTorrent limitada, desarrollada para la unidad de aprendizaje de Sistemas Distribuidos. Implementa una arquitectura P2P Híbrida que permite la transferencia descentralizada de archivos de gran tamaño (min. 50 MB) mediante fragmentación y validación concurrente.
+El sistema emula un enjambre (swarm) de nodos P2P que permite la transferencia eficiente, segura y resiliente de archivos de gran tamaño (mínimo 50 MB) sobre una red externa simulada.
 
+🛠️ Características Técnicas
+Arquitectura P2P Híbrida: Separación de planos; un Tracker central orquestador para señalización (JSON) y una red de Peers para transferencia binaria directa.
 
+Concurrencia Real (Multithreading): Implementación de hilos independientes para permitir que un nodo actúe como Seeder y Leecher simultáneamente sin bloqueos.
 
+Integridad BEP-0003 (SHA-1): Validación pieza por pieza (chunks de 512 KB) mediante hashes criptográficos para asegurar réplicas exactas bit a bit.
 
-El sistema utiliza una red Overlay mediante Tailscale para emular un entorno de nube real, superando restricciones de NAT y permitiendo la comunicación entre nodos remotos .
+Tolerancia a Fallos & Resume: Mecanismo de checkpointing persistente que permite reanudar descargas y procesos de subida tras desconexiones inesperadas.
 
-🚀 Características Principales
+Red Overlay (Tailscale): Configurado para operar sobre una VPN Mesh, permitiendo comunicación entre nodos a través de redes externas y superando restricciones de NAT.
 
-Arquitectura Multihilo (Threading): Los nodos actúan como Seeder y Leecher de forma simultánea sin bloqueo de interfaz.
+📂 Estructura del Proyecto
+/tracker.py: Servidor de monitoreo y registro de nodos.
 
+/peer.py: Lógica del nodo (Cliente/Servidor) con motor de integridad.
 
+/Shared_X: Directorios de trabajo para simular la dispersión de datos.
 
-Integridad de Datos (SHA-1): Implementación del estándar BEP-0003; cada bloque de 512 KB es validado criptográficamente.
+/progress.json: Archivo de estado para persistencia y recuperación.
 
+🚀 Cómo empezar
+Red: Asegúrate de tener Tailscale activo o estar en la misma red local.
 
-
-Tolerancia a Fallos (Checkpointing): Persistencia de estado mediante archivos JSON, permitiendo la reanudación de descargas (Resume) tras desconexiones.
-
-
-
-Tracker Centralizado: Orquestador encargado del registro de nodos, búsqueda de archivos y monitoreo de la salud del enjambre (Swarm).
-
-
-🛠️ Stack Tecnológico
-
-Lenguaje: Python 3.x 
-
-
-Comunicación: Sockets TCP 
-
-
-Red: Tailscale (Mesh VPN) para emulación de Red Externa 
-
-
-Serialización: JSON 
-
-📐 Arquitectura del Sistema
-El sistema separa estrictamente el Plano de Control (Señalización JSON con el Tracker) del Plano de Datos (Transferencia binaria P2P entre Peers) para optimizar el ancho de banda .
-
-📦 Instalación y Uso
-Clonar el repositorio:
-
-Bash
-
-git clone https://github.com/tu-usuario/bittorrent-simulation.git
-cd bittorrent-simulation
-Configurar Tailscale (Recomendado): Asegúrate de tener Tailscale activo en todos los nodos para obtener las IPs virtuales.
-
-Ejecutar el Tracker:
+Lanzar el Orquestador:
 
 Bash
 
 python tracker.py
-Ejecutar los Peers (mínimo 3):
+Lanzar los Nodos:
 
 Bash
 
 python peer.py
-📊 Visualización de Pruebas
-El proyecto incluye un monitor de red en tiempo real que despliega:
+📊 Visualización
+El sistema proporciona una interfaz de consola estructurada que muestra:
 
-Lista de nodos conectados y sus roles .
+Lista de nodos activos y sus roles.
 
-Archivos compartidos y en consumo por cada nodo .
+Archivos en consumo y progreso porcentual en tiempo real.
 
-Progreso porcentual de las descargas activas.
-
-
-📜 Licencia
-Este proyecto se distribuye bajo la licencia MIT.
+Logs de validación SHA-1 para cada fragmento recibido.
 
 🎓 Créditos
+Desarrollador: Isaac Humberto Gámez Gress
 
-Alumno: Isaac Humberto Gámez Gress 
+Profesor: Miguel Félix Mata Rivera
 
-
-Profesor: Miguel Félix Mata Rivera 
-
-
-Institución: Instituto Politécnico Nacional - UPIITA
+Institución: UPIITA - Instituto Politécnico Nacional
