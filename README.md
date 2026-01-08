@@ -1,4 +1,5 @@
 BitTorrent Swarm Simulation (P2P Distributed System)
+
 📌 Descripción del Proyecto
 Este proyecto es una emulación funcional de una red BitTorrent limitada, desarrollada para la unidad de aprendizaje de Sistemas Distribuidos. Implementa una arquitectura P2P Híbrida que permite la transferencia descentralizada de archivos de gran tamaño (min. 50 MB) mediante fragmentación y validación concurrente.
 
