@@ -45,6 +45,10 @@ Archivos en consumo y progreso porcentual en tiempo real.
 
 Logs de validación SHA-1 para cada fragmento recibido.
 
+## 📄 Documentación Completa
+Puedes consultar el reporte detallado del proyecto aquí:
+[Descargar Reporte Técnico (PDF)](https://github.com/Qbiit/BitTorrent-/raw/main/IGamez_SD_ProyectoFinal.pdf)
+
 🎓 Créditos
 Desarrollador: Isaac Humberto Gámez Gress
 
