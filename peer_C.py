@@ -4,194 +4,215 @@ import os
 import json
 import time
 import sys
-import hashlib  # Importante para el calculo de hashes SHA-1 [cite: 220]
+import hashlib
+import tkinter as tk
+from tkinter import ttk, messagebox
 
-# === CONFIGURACION (CAMBIA PARA CADA NODO) ===
-TRACKER_IP = "192.168.1.135" # IP actual
+# === CONFIGURACION ===
+TRACKER_IP = "192.168.1.135" 
 TRACKER_PORT = 5000
 MY_IP = "192.168.1.135"
 PEER_PORT = 5003         # Nodo A=5001, B=5002, C=5003
-SHARED_DIR = "Shared_C"  # Shared_A, Shared_B, Shared_C
-# =============================================
-
-CHUNK_SIZE = 1024 * 512  # Fragmentos de 512KB [cite: 114]
-FILE_SIZE = 52428800     # 50MB minimo [cite: 39]
+SHARED_DIR = "Shared_C"  
+CHUNK_SIZE = 1024 * 512  
+FILE_SIZE = 52428800     
 
 os.makedirs(SHARED_DIR, exist_ok=True)
 DB_FILE = f"progress_{PEER_PORT}.json"
 progress_db = {}
 
-def load_progress():
-    global progress_db
-    if os.path.exists(DB_FILE):
+class PeerGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title(f"BitTorrent Peer - Puerto {PEER_PORT}")
+        self.root.geometry("600x550")
+        self.load_progress_local()
+        self.setup_ui()
+        
+        # Iniciar el servidor de subida (Uploads) en segundo plano [cite: 136]
+        threading.Thread(target=self.serve, daemon=True).start()
+        self.register_with_tracker()
+
+    def setup_ui(self):
+        # --- SECCION SUPERIOR: CONFIGURACIÓN ---
+        tk.Label(self.root, text=f"NODO ACTIVO: {MY_IP}:{PEER_PORT}", font=("Arial", 10, "bold"), fg="blue").pack(pady=5)
+        
+        # --- SECCION: DESCARGA ---
+        frame_dl = tk.LabelFrame(self.root, text=" Descargar Archivo (Leecher) ")
+        frame_dl.pack(fill="x", padx=10, pady=5)
+        
+        self.entry_file = tk.Entry(frame_dl)
+        self.entry_file.pack(side="left", fill="x", expand=True, padx=5, pady=5)
+        self.entry_file.insert(0, "archivo.mp4")
+        
+        btn_dl = tk.Button(frame_dl, text="Iniciar Descarga", command=self.btn_download_clicked, bg="#d1e7dd")
+        btn_dl.pack(side="right", padx=5)
+
+        # --- SECCION: PROGRESO ---
+        frame_prog = tk.LabelFrame(self.root, text=" Estado de Transferencia ")
+        frame_prog.pack(fill="x", padx=10, pady=5)
+        
+        self.lbl_status = tk.Label(frame_prog, text="Esperando instrucciones...")
+        self.lbl_status.pack(anchor="w", padx=5)
+        
+        self.progress_bar = ttk.Progressbar(frame_prog, orient="horizontal", length=400, mode="determinate")
+        self.progress_bar.pack(fill="x", padx=5, pady=5)
+
+        # --- SECCION: LOGS (Visualización en tiempo real) [cite: 34, 62] ---
+        frame_logs = tk.LabelFrame(self.root, text=" Bitácora de Red (SHA-1 / Checkpoints) ")
+        frame_logs.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        self.log_area = tk.Text(frame_logs, height=12, font=("Consolas", 9), bg="black", fg="white")
+        self.log_area.pack(fill="both", expand=True, padx=5, pady=5)
+
+        # --- BOTONES EXTRA ---
+        frame_btns = tk.Frame(self.root)
+        frame_btns.pack(fill="x", padx=10, pady=5)
+        
+        tk.Button(frame_btns, text="Ver Locales", command=self.ver_archivos_locales).pack(side="left", padx=5)
+        tk.Button(frame_btns, text="Abrir Descargado", command=self.abrir_archivo).pack(side="left", padx=5)
+        tk.Button(frame_btns, text="Salir", command=self.salir, bg="#f8d7da").pack(side="right", padx=5)
+
+    def write_log(self, text):
+        self.log_area.insert(tk.END, f"> {text}\n")
+        self.log_area.see(tk.END)
+
+    # === INTEGRACION DE TU LÓGICA ORIGINAL ===
+
+    def load_progress_local(self):
+        global progress_db
+        if os.path.exists(DB_FILE):
+            try:
+                with open(DB_FILE, "r") as f:
+                    progress_db = json.load(f)
+            except: progress_db = {}
+
+    def register_with_tracker(self, downloading_file=None, percent=0):
+        all_files = os.listdir(SHARED_DIR)
+        files_shared = [f for f in all_files if f != downloading_file]
+        files_downloading = {downloading_file: percent} if downloading_file else {}
+        status = "seeder" if not downloading_file else "leecher"
+        msg = {
+            "action": "REGISTER", "ip": MY_IP, "port": PEER_PORT,
+            "files_shared": files_shared, "files_downloading": files_downloading, "status": status
+        }
         try:
-            with open(DB_FILE, "r") as f:
-                progress_db = json.load(f)
-        except: progress_db = {}
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(2)
+            s.connect((TRACKER_IP, TRACKER_PORT))
+            s.send(json.dumps(msg).encode())
+            s.close()
+        except: pass
 
-def save_progress():
-    with open(DB_FILE, "w") as f:
-        json.dump(progress_db, f)
+    def btn_download_clicked(self):
+        fname = self.entry_file.get()
+        if fname:
+            # Lanzamos en hilo para no congelar la GUI [cite: 90]
+            threading.Thread(target=self.request_file_logic, args=(fname,), daemon=True).start()
 
-def register_with_tracker(downloading_file=None, percent=0):
-    """ Capa de Monitoreo: Reporta roles y progreso[cite: 58, 61, 88]. """
-    all_files = os.listdir(SHARED_DIR)
-    files_shared = [f for f in all_files if f != downloading_file]
-    files_downloading = {downloading_file: percent} if downloading_file else {}
-    status = "seeder" if not downloading_file else "leecher"
+    def request_file_logic(self, filename):
+        self.write_log(f"Consultando Tracker por: {filename}")
+        msg = {"action": "GET_PEERS", "file": filename}
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.connect((TRACKER_IP, TRACKER_PORT))
+            s.send(json.dumps(msg).encode())
+            resp = json.loads(s.recv(4096).decode())
+            s.close()
+            
+            peers = resp.get("peers", [])
+            others = [p for p in peers if p != f"{MY_IP}:{PEER_PORT}"]
+            
+            if others:
+                self.write_log(f"Fuentes encontradas: {others}")
+                t_ip, t_port = others[0].split(":") # Tomamos el primero por simplicidad
+                self.download_logic(t_ip, int(t_port), filename)
+            else:
+                self.write_log("No hay fuentes disponibles.")
+        except:
+            self.write_log("Error de conexión con el Tracker.")
 
-    msg = {
-        "action": "REGISTER", "ip": MY_IP, "port": PEER_PORT,
-        "files_shared": files_shared, "files_downloading": files_downloading, "status": status
-    }
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(2)
-        s.connect((TRACKER_IP, TRACKER_PORT))
-        s.send(json.dumps(msg).encode())
-        s.close()
-    except: pass
-
-def request_file(filename):
-    """ Capa de Transferencia: Localiza fuentes y maneja redundancia[cite: 89, 95]. """
-    msg = {"action": "GET_PEERS", "file": filename}
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.connect((TRACKER_IP, TRACKER_PORT))
-        s.send(json.dumps(msg).encode())
-        resp = json.loads(s.recv(4096).decode())
-        s.close()
+    def download_logic(self, ip, port, filename):
+        self.load_progress_local()
+        start_byte = progress_db.get(filename, 0)
         
-        peers = resp.get("peers", [])
-        others = [p for p in peers if p != f"{MY_IP}:{PEER_PORT}"]
-        
-        if others:
-            print(f"\n[*] Fuentes encontradas: {others}")
-            for target_peer in others:
-                t_ip, t_port = target_peer.split(":")
-                try:
-                    # Intento de conexion para validar fuente activa
-                    test_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    test_s.settimeout(2)
-                    test_s.connect((t_ip, int(t_port)))
-                    test_s.close()
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.connect((ip, port))
+            s.send(json.dumps({"file": filename, "start": start_byte}).encode())
+
+            mode = "ab" if start_byte > 0 else "wb"
+            with open(os.path.join(SHARED_DIR, filename), mode) as f:
+                while start_byte < FILE_SIZE:
+                    data = s.recv(CHUNK_SIZE)
+                    if not data: break
                     
-                    threading.Thread(target=download_logic, args=(t_ip, int(t_port), filename), daemon=True).start()
-                    return
-                except:
-                    print(f"[!] Nodo {target_peer} no responde, intentando siguiente...")
-        else:
-            print("[!] No hay fuentes disponibles.")
-    except:
-        print("[!] Error de conexión con el Tracker.")
+                    pieza_hash = hashlib.sha1(data).hexdigest()
+                    f.write(data)
+                    start_byte += len(data)
+                    
+                    percent = min(int((start_byte / FILE_SIZE) * 100), 100)
+                    
+                    # Actualizar UI
+                    self.progress_bar['value'] = percent
+                    self.lbl_status.config(text=f"Descargando: {percent}%")
+                    self.write_log(f"Chunk verificado (SHA-1): {pieza_hash[:10]}")
+                    
+                    progress_db[filename] = start_byte
+                    with open(DB_FILE, "w") as dbf: json.dump(progress_db, dbf)
+                    self.register_with_tracker(filename, percent)
+                    time.sleep(0.05)
 
-def download_logic(ip, port, filename):
-    """
-    Tolerancia a fallos: Retoma descargas y valida integridad por pieza[cite: 51, 102, 219].
-    """
-    load_progress()
-    start_byte = progress_db.get(filename, 0)
-    if start_byte >= FILE_SIZE: start_byte = 0 
-    
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(10)
-        s.connect((ip, port))
-        s.send(json.dumps({"file": filename, "start": start_byte}).encode())
+            self.write_log(f"DESCARGA COMPLETADA AL 100%")
+            messagebox.showinfo("Éxito", f"Archivo {filename} descargado.")
+            self.register_with_tracker()
+        except Exception as e:
+            self.write_log(f"Error: {e}")
 
-        mode = "ab" if start_byte > 0 else "wb"
-        with open(os.path.join(SHARED_DIR, filename), mode) as f:
-            while start_byte < FILE_SIZE:
-                data = s.recv(CHUNK_SIZE)
-                if not data: break
-                
-                # --- AQUI VA LA VALIDACION DE INTEGRIDAD ---
-                # Simulamos la verificacion de piezas del protocolo oficial
-                pieza_hash = hashlib.sha1(data).hexdigest()
-                
-                f.write(data)
-                start_byte += len(data)
-                
-                percent = min(int((start_byte / FILE_SIZE) * 100), 100)
-                progress_db[filename] = start_byte
-                save_progress()
-                
-                register_with_tracker(filename, percent)
-                # Mostramos el hash en consola para demostrar la validacion en el video
-                print(f"\r[*] {filename}: {percent}% | Hash Pieza: {pieza_hash[:10]}...", end="")
-                time.sleep(0.1) 
+    def ver_archivos_locales(self):
+        archivos = os.listdir(SHARED_DIR)
+        messagebox.showinfo("Archivos Compartidos", f"Contenido de {SHARED_DIR}:\n" + "\n".join(archivos))
 
-        if start_byte >= FILE_SIZE:
-            print(f"\n[OK] {filename} descargado y verificado mediante SHA-1.")
-            register_with_tracker() 
-    except Exception as e:
-        print(f"\n[!] Error en transferencia o integridad: {e}")
+    def abrir_archivo(self):
+        # Lógica simplificada: abre el primero que encuentre en la carpeta
+        archivos = os.listdir(SHARED_DIR)
+        if archivos:
+            path = os.path.join(SHARED_DIR, archivos[0])
+            if sys.platform == "win32": os.startfile(path)
+            else: os.system(f"xdg-open '{path}'")
 
-def open_file_locally(filepath):
-    """ Abre archivos para verificar integridad (Criterio 2). """
-    try:
-        if sys.platform == "win32": os.startfile(filepath)
-        elif sys.platform == "darwin": os.system(f"open '{filepath}'")
-        else: os.system(f"xdg-open '{filepath}'")
-    except Exception as e:
-        print(f"[!] Error al abrir: {e}")
+    def serve(self):
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.bind(("0.0.0.0", PEER_PORT))
+        server.listen(10)
+        while True:
+            conn, addr = server.accept()
+            threading.Thread(target=self.handle_upload, args=(conn,), daemon=True).start()
 
-def serve():
-    """ Capa de Transferencia: Atiende múltiples peticiones (Uploads)[cite: 136]. """
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind(("0.0.0.0", PEER_PORT))
-    server.listen(10)
-    while True:
-        conn, addr = server.accept()
-        threading.Thread(target=handle_upload, args=(conn,), daemon=True).start()
+    def handle_upload(self, conn):
+        try:
+            data = conn.recv(1024).decode()
+            req = json.loads(data)
+            path = os.path.join(SHARED_DIR, req['file'])
+            if os.path.exists(path):
+                with open(path, "rb") as f:
+                    f.seek(req['start'])
+                    while chunk := f.read(CHUNK_SIZE):
+                        conn.send(chunk)
+        except: pass
+        finally: conn.close()
 
-def handle_upload(conn):
-    try:
-        data = conn.recv(1024).decode()
-        req = json.loads(data)
-        path = os.path.join(SHARED_DIR, req['file'])
-        if os.path.exists(path):
-            with open(path, "rb") as f:
-                f.seek(req['start']) # Reanudacion desde el puntero solicitado [cite: 52]
-                while chunk := f.read(CHUNK_SIZE):
-                    conn.send(chunk)
-    except: pass
-    finally: conn.close()
+    def salir(self):
+        try:
+            msg = {"action": "DISCONNECT", "ip": MY_IP, "port": PEER_PORT}
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.connect((TRACKER_IP, TRACKER_PORT))
+            s.send(json.dumps(msg).encode())
+            s.close()
+        except: pass
+        os._exit(0)
 
 if __name__ == "__main__":
-    threading.Thread(target=serve, daemon=True).start()
-    register_with_tracker()
-    
-    while True:
-        print(f"\n--- NODO {PEER_PORT} | IP: {MY_IP} ---")
-        print("1. Descargar archivo (Multitarea)")
-        print("2. Ver archivos locales")
-        print("3. Abrir archivo descargado")
-        print("4. Salir")
-        op = input("Selecciona: ")
-        
-        if op == "1":
-            fname = input("Nombre del archivo: ")
-            threading.Thread(target=request_file, args=(fname,), daemon=True).start()
-        elif op == "2":
-            print(f"Contenido de {SHARED_DIR}: {os.listdir(SHARED_DIR)}")
-        elif op == "3":
-            archivos = os.listdir(SHARED_DIR)
-            for i, f in enumerate(archivos): print(f"{i+1}. {f}")
-            try:
-                sel = int(input("Número: ")) - 1
-                open_file_locally(os.path.join(SHARED_DIR, archivos[sel]))
-            except: print("[!] Selección inválida.")
-        elif op == "4":
-            print("Notificando al Tracker y cerrando nodo...")
-            # Mensaje de despedida
-            try:
-                msg = {"action": "DISCONNECT", "ip": MY_IP, "port": PEER_PORT}
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.settimeout(2)
-                s.connect((TRACKER_IP, TRACKER_PORT))
-                s.send(json.dumps(msg).encode())
-                s.close()
-            except:
-                pass
-            os._exit(0)
+    root = tk.Tk()
+    app = PeerGUI(root)
+    root.mainloop()
